@@ -1,0 +1,73 @@
+name: SwiftKanban Issues Sync
+on:
+  workflow_call:
+    inputs:
+      default_work_type:
+        required: false
+        type: string
+        default: 'ISS'
+      customer_name:
+        required: true
+        type: string
+    secrets:
+      host:
+        required: true
+      board_id:
+        required: true
+      token:
+        required: true
+jobs:
+  add_card:
+    runs-on: ubuntu-latest
+    env:
+      PAYLOAD_FILENAME: payload.json 
+    steps:
+      - name: Create payload
+        env:
+          DEFAULTS_CARD_WORKTYPE: ${{ inputs.default_work_type }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ' ') }}
+          CUSTOMER_NAME: ${{ inputs.customer_name }}
+        run: |
+          card_name="$ISSUE_TITLE"
+          card_descr="$ISSUE_BODY"
+          card_worktype="$DEFAULTS_CARD_WORKTYPE"
+          card_customer="$CUSTOMER_NAME"
+          
+          shopt -s nocasematch
+          if [[ "$ISSUE_LABELS" =~ (^|[[:space:]])bug([[:space:]]|$) ]]; then
+            card_worktype="BUG"
+          elif [[ "$ISSUE_LABELS" =~ (^|[[:space:]])enhancement([[:space:]]|$) ]]; then
+            card_worktype="ENHC"
+          fi
+          shopt -u nocasematch
+          
+          jq \
+          --null-input \
+          --compact-output \
+          --arg worktype "$card_worktype" \
+          --arg name "$card_name" \
+          --arg description "$card_descr" \
+          --arg customer "$card_customer"  \
+          '{"card": [ {"workType": $worktype, "name": $name, "description": $description, "shorttext1": $customer} ] }' \
+          > "$GITHUB_WORKSPACE/$PAYLOAD_FILENAME"
+      - name: Send payload
+        env:
+          SK_TOKEN: ${{ secrets.token }}
+          SK_HOST: ${{ secrets.host }}
+          SK_BOARD_ID: ${{ secrets.board_id }}
+        run: |
+          response=$(curl \
+          --no-progress-meter \
+          --request POST "https://$SK_HOST/restapi/card-operations/boards/$SK_BOARD_ID/cards" \
+          --header "AuthorizationToken: $SK_TOKEN" \
+          --header 'Content-Type: application/json' \
+          --data-binary "@$GITHUB_WORKSPACE/$PAYLOAD_FILENAME")
+          
+          response_status=$(echo "$response" | jq --raw-output .Response.details.cardDetails[0].responseStatus)
+          
+          if [[ "$response_status" != "Successful" ]]; then
+            echo "$response" | jq .
+            exit 1
+          fi
