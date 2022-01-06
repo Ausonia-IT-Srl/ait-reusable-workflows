@@ -54,6 +54,8 @@ jobs:
           --header "AuthorizationToken: $SK_TOKEN" \
           --header 'Content-Type: application/json' \
           --data-binary "@$GITHUB_WORKSPACE/$PAYLOAD_FILENAME")
+
+          echo "$response"
           
           response_status=$(echo "$response" | jq --raw-output .Response.details.cardDetails[0].responseStatus)
           
