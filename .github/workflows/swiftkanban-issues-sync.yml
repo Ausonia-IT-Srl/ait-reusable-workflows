@@ -20,37 +20,27 @@ jobs:
   add_card:
     runs-on: ubuntu-latest
     env:
-      PAYLOAD_FILENAME: payload.json 
+      PAYLOAD_FILENAME: 'payload.json'
     steps:
       - name: Create payload
         env:
-          DEFAULTS_CARD_WORKTYPE: ${{ inputs.default_work_type }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
-          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ' ') }}
-          CUSTOMER_NAME: ${{ inputs.customer_name }}
+          CARD_WORKTYPE_DEFAULT: ${{ inputs.default_work_type }}
+          CARD_CUSTOMER_NAME: ${{ inputs.customer_name }}
+          CARD_WORKTYPE_MAPPINGS: '{ "bug": "BUG","enhancement": "ENHC" }'
         run: |
-          card_name="$ISSUE_TITLE"
-          card_descr="$ISSUE_BODY"
-          card_worktype="$DEFAULTS_CARD_WORKTYPE"
-          card_customer="$CUSTOMER_NAME"
-          
-          shopt -s nocasematch
-          if [[ "$ISSUE_LABELS" =~ (^|[[:space:]])bug([[:space:]]|$) ]]; then
-            card_worktype="BUG"
-          elif [[ "$ISSUE_LABELS" =~ (^|[[:space:]])enhancement([[:space:]]|$) ]]; then
-            card_worktype="ENHC"
-          fi
-          shopt -u nocasematch
-          
           jq \
-          --null-input \
           --compact-output \
-          --arg worktype "$card_worktype" \
-          --arg name "$card_name" \
-          --arg description "$card_descr" \
-          --arg customer "$card_customer"  \
-          '{"card": [ {"workType": $worktype, "name": $name, "description": $description, "shorttext1": $customer} ] }' \
+          --arg wkt_default "$CARD_WORKTYPE_DEFAULT" \
+          --argjson wkt_mappings "$CARD_WORKTYPE_MAPPINGS" \
+          --arg customer "$CARD_CUSTOMER_NAME"  \
+          '.issue | 
+          {
+            "workType": ([ $wkt_mappings[ .labels[].name ] ][0] // $wkt_default),
+            "name": .title, 
+            "description": .body,
+            "shorttext1": $customer
+          }' \
+          "$GITHUB_EVENT_PATH"
           > "$GITHUB_WORKSPACE/$PAYLOAD_FILENAME"
       - name: Send payload
         env:
