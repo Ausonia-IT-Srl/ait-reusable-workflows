@@ -34,11 +34,12 @@ jobs:
           --argjson wkt_mappings "$CARD_WORKTYPE_MAPPINGS" \
           --arg customer "$CARD_CUSTOMER_NAME"  \
           '.issue | 
-          {
+          {"card": [ {
             "workType": ([ $wkt_mappings[ .labels[].name ] ][0] // $wkt_default),
             "name": .title, 
             "description": .body,
             "shorttext1": $customer
+            } ]
           }' \
           "$GITHUB_EVENT_PATH" \
           > "$GITHUB_WORKSPACE/$PAYLOAD_FILENAME"
