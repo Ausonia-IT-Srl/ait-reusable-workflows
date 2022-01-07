@@ -91,7 +91,7 @@ jobs:
             --data-urlencode "fieldName=currentSwimId" \
             --data-urlencode "advanceFilter=name:{\$lkw:@github#$issue_id}")
 
-            echo "$reponse" \
+            echo "$response" \
             | jq \
             --compact-output \
             --arg queue_id "$SK_CLOSED_QUEUE_ID" \
