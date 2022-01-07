@@ -14,10 +14,13 @@ on:
         required: true
       board_id:
         required: true
+      closed_queue_id:
+        required: true
       token:
         required: true
 jobs:
   add_card:
+    if: ${{ github.event_name == 'issues' && github.event.action == 'opened' }}
     runs-on: ubuntu-latest
     env:
       PAYLOAD_FILENAME: 'payload.json'
@@ -36,7 +39,7 @@ jobs:
           '.issue | 
           {"card": [ {
             "workType": ([ $wkt_mappings[ .labels[].name ] ][0] // $wkt_default),
-            "name": .title, 
+            "name": "\(.title) @github#\(.id)", 
             "description": .body,
             "shorttext1": $customer
             } ]
@@ -62,3 +65,62 @@ jobs:
             echo "$response" | jq .
             exit 1
           fi
+  move_card:
+      if: ${{ github.event_name == 'issues' && github.event.action == 'closed' }}
+      runs-on: ubuntu-latest
+      env:
+        SK_TOKEN: ${{ secrets.token }}
+        SK_HOST: ${{ secrets.host }}
+        SK_BOARD_ID: ${{ secrets.board_id }}
+        PAYLOAD_FILENAME: 'payload.json'
+      steps:
+      - name: Create payload
+        env:
+          SK_CLOSED_QUEUE_ID: ${{ secrets.closed_queue_id }}
+        run: |
+          issue_id=$(jq '.issue.id' "$GITHUB_EVENT_PATH")
+
+          echo "Issue unique id: $issue_id"
+
+          response=$(curl \
+          --no-progress-meter \
+          --get "https://$SK_HOST/restapi/card-operations/boards/$SK_BOARD_ID/cards" \
+          --header "AuthorizationToken: $SK_TOKEN" \
+          --data-urlencode "fieldName=id" \
+          --data-urlencode "fieldName=workType" \
+          --data-urlencode "fieldName=currentSwimId" \
+          --data-urlencode "advanceFilter=name:{\$lkw:@github#$issue_id}")
+
+          echo "$reponse" \
+          | jq \
+          --compact-output \
+          --arg queue_id "$SK_CLOSED_QUEUE_ID" \
+          '.Response.details.cardDetails[0] |
+          {
+            "cardDetails": [
+              {
+                "cardType": .workType,
+                "cardUniqueId": .id,
+                "toSwimId": .currentSwimId,
+                "toQkeyId": $queue_id
+              }
+            ]
+          }' \
+          > "$GITHUB_WORKSPACE/$PAYLOAD_FILENAME"
+
+          cat "$GITHUB_WORKSPACE/$PAYLOAD_FILENAME"
+      - name: Send payload
+        run: |
+        response=$(curl \
+        --no-progress-meter \
+        --request PUT "https://$SK_HOST/restapi/card-operations/boards/$SK_BOARD_ID/cards/move/board" \
+        --header "AuthorizationToken: $SK_TOKEN" \
+        --header 'Content-Type: application/json' \
+        --data-binary "@$GITHUB_WORKSPACE/$PAYLOAD_FILENAME")
+
+        response_status=$(echo "$response" | jq --raw-output .Response.details.cardDetails[0].responseStatus)
+          
+        if [[ "$response_status" != "Successful" ]]; then
+          echo "$response" | jq .
+          exit 1
+        fi
